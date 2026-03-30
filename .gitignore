@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Data files (too large for GitHub, downloaded by scripts)
+data/utci/*.tif
+data/utci/*.zip
+data/population/*.tif
+data/nightlight/*.tif
+data/gdp/*.tif
+data/processed/*.tif
+data/processed/*.gpkg
+
+# Large output files
+output/maps/*.svg
+output/blocks/*.gpkg
+
+# OS files
+.DS_Store
+Thumbs.db

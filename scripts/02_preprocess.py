@@ -4,24 +4,20 @@
 
 Steps:
   1. Generate a Shanghai boundary polygon from OSM road extents.
-  2. Clip each raster to Shanghai extent.
-  3. Reproject all rasters to EPSG:32651 (UTM Zone 51N).
+  2. Clip each raster to Shanghai extent using gdal_translate (window-based).
+  3. Reproject all rasters to EPSG:32651 (UTM Zone 51N) via gdalwarp.
   4. For UTCI: convert Int16 values to °C (divide by 100).
-  5. For GDP: extract the most recent band (2020 or 2022).
+  5. For GDP: extract the most recent band (2022).
 """
 
+import os
 import sys
 from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
 import rasterio
-from rasterio.mask import mask as rio_mask
-from rasterio.warp import (
-    Resampling,
-    calculate_default_transform,
-    reproject,
-)
+from rasterio.warp import Resampling, calculate_default_transform, reproject
 from shapely.geometry import box
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -43,8 +39,6 @@ from config import (
 )
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────
-
 def ensure_dir(p: Path):
     p.mkdir(parents=True, exist_ok=True)
 
@@ -57,12 +51,10 @@ def make_boundary() -> gpd.GeoDataFrame:
         print(f"  [skip] Boundary already exists: {BOUNDARY_FILE}")
         return gpd.read_file(BOUNDARY_FILE)
 
-    # Use the bounding box of all OSM road features, with a small buffer
-    roads = gpd.read_file(OSM_ROADS, columns=[])  # geometry only
-    total_bounds = roads.total_bounds  # [xmin, ymin, xmax, ymax]
+    roads = gpd.read_file(OSM_ROADS, columns=[])
+    total_bounds = roads.total_bounds
     print(f"  OSM roads extent: {total_bounds}")
 
-    # Use the tighter of OSM extent and configured bbox
     xmin = max(total_bounds[0], SHANGHAI_BBOX[0])
     ymin = max(total_bounds[1], SHANGHAI_BBOX[1])
     xmax = min(total_bounds[2], SHANGHAI_BBOX[2])
@@ -77,113 +69,106 @@ def make_boundary() -> gpd.GeoDataFrame:
     return gdf
 
 
-def clip_and_reproject(
+def clip_reproject_raster(
     src_path: Path,
     dst_path: Path,
-    boundary_gdf: gpd.GeoDataFrame,
     band_index: int | None = None,
     scale_factor: float | None = None,
     label: str = "",
 ):
-    """Clip a raster to boundary extent, reproject to UTM 51N, optionally
-    extract a single band and apply a scale factor."""
+    """
+    Clip a raster to the Shanghai bounding box, reproject to UTM 51N,
+    optionally extract a single band and apply a scale factor.
+    Uses a two-step approach: window-based read → reproject.
+    """
     print(f"\n  Processing {label or src_path.name} ...")
 
     if dst_path.exists() and dst_path.stat().st_size > 500:
         print(f"  [skip] {dst_path.name} already exists")
         return
 
-    # Ensure boundary is in the raster's CRS for clipping
-    with rasterio.open(src_path) as src:
-        src_crs = src.crs
-        if band_index is not None:
-            read_bands = [band_index]
-        else:
-            read_bands = list(range(1, src.count + 1))
-
-    boundary_reproj = boundary_gdf.to_crs(src_crs)
-    shapes = boundary_reproj.geometry.values
-
-    # Step 1: clip
-    with rasterio.open(src_path) as src:
-        out_image, out_transform = rio_mask(
-            src, shapes, crop=True, indexes=read_bands,
-            nodata=src.nodata, filled=True,
-        )
-        out_meta = src.meta.copy()
-
-    # Handle single band extraction
-    if band_index is not None:
-        if out_image.ndim == 3 and out_image.shape[0] == 1:
-            pass  # already (1, H, W)
-        out_meta["count"] = 1
-
-    out_meta.update({
-        "transform": out_transform,
-        "height": out_image.shape[-2],
-        "width": out_image.shape[-1],
-    })
-
-    # Apply scale factor (e.g. UTCI Int16 → °C)
-    if scale_factor is not None:
-        out_image = out_image.astype(np.float32)
-        nodata_val = out_meta.get("nodata")
-        if nodata_val is not None:
-            valid = out_image != nodata_val
-            out_image[valid] = out_image[valid] * scale_factor
-        else:
-            out_image = out_image * scale_factor
-        out_meta["dtype"] = "float32"
-        out_meta["nodata"] = -9999.0
-
-    # Step 2: reproject to UTM 51N
-    dst_crs = CRS_UTM51N
-    transform, width, height = calculate_default_transform(
-        out_meta["crs"] if "crs" in out_meta else src_crs,
-        dst_crs,
-        out_meta["width"],
-        out_meta["height"],
-        *rasterio.transform.array_bounds(
-            out_meta["height"], out_meta["width"], out_transform
-        ),
-    )
-
-    dst_meta = out_meta.copy()
-    dst_meta.update({
-        "crs": dst_crs,
-        "transform": transform,
-        "width": width,
-        "height": height,
-        "compress": "lzw",
-        "driver": "GTiff",
-    })
-
-    # Remove tiling params if present to avoid issues
-    for key in ["blockxsize", "blockysize", "tiled"]:
-        dst_meta.pop(key, None)
-
     ensure_dir(dst_path.parent)
 
-    with rasterio.open(dst_path, "w", **dst_meta) as dst:
-        for i in range(1, dst_meta["count"] + 1):
-            band_data = out_image[i - 1] if out_image.ndim == 3 else out_image
-            dest_band = np.empty((height, width), dtype=dst_meta["dtype"])
-            reproject(
-                source=band_data,
-                destination=dest_band,
-                src_transform=out_transform,
-                src_crs=out_meta.get("crs", src_crs),
-                dst_transform=transform,
-                dst_crs=dst_crs,
-                resampling=Resampling.bilinear,
-            )
-            dst.write(dest_band, i)
+    xmin, ymin, xmax, ymax = SHANGHAI_BBOX
+    buf = 0.15  # degree buffer for edge effects
+    clip_xmin, clip_ymin = xmin - buf, ymin - buf
+    clip_xmax, clip_ymax = xmax + buf, ymax + buf
+
+    with rasterio.open(src_path) as src:
+        # Compute window from bounds
+        window = rasterio.windows.from_bounds(
+            clip_xmin, clip_ymin, clip_xmax, clip_ymax,
+            transform=src.transform,
+        )
+        # Clamp window to valid range
+        window = window.intersection(rasterio.windows.Window(0, 0, src.width, src.height))
+
+        src_nodata = src.nodata
+        read_band = band_index if band_index is not None else 1
+        data = src.read(read_band, window=window).astype(np.float32)
+        win_transform = src.window_transform(window)
+        src_crs = src.crs
+
+    print(f"    Clipped shape: {data.shape}")
+    print(f"    Src nodata: {src_nodata}")
+
+    # Mask nodata
+    if src_nodata is not None and not np.isnan(src_nodata):
+        data[data == src_nodata] = np.nan
+    # Also mask extremely large negative values (sentinel nodata)
+    data[data < -1e30] = np.nan
+
+    # Apply scale factor
+    if scale_factor is not None:
+        valid = np.isfinite(data)
+        data[valid] = data[valid] * scale_factor
+
+    valid_count = np.count_nonzero(np.isfinite(data))
+    print(f"    Valid pixels: {valid_count}/{data.size}")
+    if valid_count > 0:
+        vdata = data[np.isfinite(data)]
+        print(f"    Value range: [{vdata.min():.4f}, {vdata.max():.4f}]")
+
+    # Reproject to UTM 51N
+    dst_crs = CRS_UTM51N
+    transform, width, height = calculate_default_transform(
+        src_crs, dst_crs,
+        data.shape[1], data.shape[0],
+        *rasterio.transform.array_bounds(data.shape[0], data.shape[1], win_transform),
+    )
+
+    dst_data = np.full((height, width), np.nan, dtype=np.float32)
+    reproject(
+        source=data,
+        destination=dst_data,
+        src_transform=win_transform,
+        src_crs=src_crs,
+        dst_transform=transform,
+        dst_crs=dst_crs,
+        resampling=Resampling.bilinear,
+        src_nodata=np.nan,
+        dst_nodata=np.nan,
+    )
+
+    profile = {
+        "driver": "GTiff",
+        "dtype": "float32",
+        "width": width,
+        "height": height,
+        "count": 1,
+        "crs": dst_crs,
+        "transform": transform,
+        "nodata": np.nan,
+        "compress": "lzw",
+    }
+
+    with rasterio.open(dst_path, "w", **profile) as dst:
+        dst.write(dst_data, 1)
 
     sz = dst_path.stat().st_size / 1e6
-    print(f"  ✓ {dst_path.name}  ({sz:.1f} MB, CRS={dst_crs})")
+    vcount = np.count_nonzero(np.isfinite(dst_data))
+    print(f"    ✓ {dst_path.name}  ({sz:.1f} MB, {vcount} valid pixels, CRS={dst_crs})")
 
-
-# ── Main ──────────────────────────────────────────────────────────────────
 
 def main():
     print("=" * 60)
@@ -197,10 +182,10 @@ def main():
     if not utci_src:
         raise FileNotFoundError(f"No UTCI TIF found in {UTCI_DIR}")
     print("\n[2/5] UTCI ...")
-    clip_and_reproject(
-        utci_src[0], UTCI_PROCESSED, boundary,
-        band_index=1, scale_factor=0.01,  # Int16 / 100 → °C
-        label="UTCI",
+    clip_reproject_raster(
+        utci_src[0], UTCI_PROCESSED,
+        band_index=1, scale_factor=0.01,
+        label="UTCI (Int16 → °C)",
     )
 
     # --- Population ---
@@ -208,8 +193,8 @@ def main():
     if not pop_src:
         raise FileNotFoundError(f"No population TIF found in {POP_DIR}")
     print("\n[3/5] Population ...")
-    clip_and_reproject(
-        pop_src[0], POP_PROCESSED, boundary,
+    clip_reproject_raster(
+        pop_src[0], POP_PROCESSED,
         label="Population",
     )
 
@@ -218,23 +203,22 @@ def main():
     if not nl_src:
         raise FileNotFoundError(f"No nightlight TIF found in {NL_DIR}")
     print("\n[4/5] Nightlight ...")
-    clip_and_reproject(
-        nl_src[0], NL_PROCESSED, boundary,
-        label="Nightlight",
+    clip_reproject_raster(
+        nl_src[0], NL_PROCESSED,
+        label="Nightlight (PCNL 2021)",
     )
 
     # --- GDP ---
     gdp_src = list(GDP_DIR.glob("*.tif"))
     if not gdp_src:
         raise FileNotFoundError(f"No GDP TIF found in {GDP_DIR}")
-    # Determine band count → pick last band (most recent year)
     with rasterio.open(gdp_src[0]) as ds:
         n_bands = ds.count
-        print(f"\n[5/5] GDP ({n_bands} bands, using band {n_bands} = most recent year) ...")
-    clip_and_reproject(
-        gdp_src[0], GDP_PROCESSED, boundary,
+    print(f"\n[5/5] GDP ({n_bands} bands, using band {n_bands}) ...")
+    clip_reproject_raster(
+        gdp_src[0], GDP_PROCESSED,
         band_index=n_bands,
-        label="GDP",
+        label="GDP (last band = most recent year)",
     )
 
     # Summary

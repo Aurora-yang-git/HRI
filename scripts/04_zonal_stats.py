@@ -21,6 +21,7 @@ from pathlib import Path
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+import rasterio
 from rasterstats import zonal_stats
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -51,13 +52,24 @@ def add_raster_stats(
 ) -> gpd.GeoDataFrame:
     """Run zonal_stats and add result as a column."""
     print(f"\n  Computing {label or col_name} ...")
+
+    # Read the raster nodata value
+    with rasterio.open(raster_path) as src:
+        nodata = src.nodata
+        print(f"    Raster nodata: {nodata}")
+
     stats = zonal_stats(
         blocks, str(raster_path),
         stats=[stat],
-        nodata=np.nan,
+        nodata=nodata,
         all_touched=True,
     )
-    blocks[col_name] = [s[stat] for s in stats]
+    blocks[col_name] = pd.to_numeric(
+        [s.get(stat) for s in stats], errors="coerce"
+    )
+
+    # Replace infinite values with NaN
+    blocks.loc[~np.isfinite(blocks[col_name]), col_name] = np.nan
 
     # Fill NaN with 0 for sum stats, or column median for mean stats
     null_count = blocks[col_name].isna().sum()
