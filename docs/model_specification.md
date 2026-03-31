@@ -293,13 +293,20 @@ $$
 ```mermaid
 quadrantChart
     title Shelter Priority Interpretation
-    x-axis Low Heat Risk Index --> High Heat Risk Index
-    y-axis Low Shelter Supply --> High Shelter Supply
-    quadrant-1 "Adequate:\nHigh risk, high shelter"
-    quadrant-2 "Safe:\nLow risk, high shelter"
-    quadrant-3 "Watch:\nLow risk, low shelter"
-    quadrant-4 "PRIORITY:\nHigh risk, low shelter"
+    x-axis Low HRI --> High HRI
+    y-axis Low Shelter --> High Shelter
+    quadrant-1 Adequate
+    quadrant-2 Safe
+    quadrant-3 Watch
+    quadrant-4 PRIORITY
 ```
+
+| Quadrant | HRI | Shelter | Interpretation |
+|----------|-----|---------|----------------|
+| **PRIORITY** | High | Low | Needs immediate intervention |
+| Adequate | High | High | Risk covered by existing shelters |
+| Watch | Low | Low | Low risk but under-resourced |
+| Safe | Low | High | No action needed |
 
 ---
 
