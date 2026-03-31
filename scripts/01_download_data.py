@@ -26,7 +26,13 @@ from config import (
 )
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────
+# Force direct connection — bypass VPN/proxy SOCKS tunnel
+SESSION = requests.Session()
+SESSION.trust_env = False  # ignore HTTP_PROXY / HTTPS_PROXY / PAC
+SESSION.proxies = {"http": None, "https": None}
+
+
+# -- Helpers ----------------------------------------------------------------
 
 def download_file(url: str, dest: Path, desc: str = "",
                   max_retries: int = 3) -> Path:
@@ -38,7 +44,7 @@ def download_file(url: str, dest: Path, desc: str = "",
     for attempt in range(1, max_retries + 1):
         try:
             print(f"  [{attempt}/{max_retries}] Downloading {desc or dest.name} ...")
-            resp = requests.get(url, stream=True, timeout=60)
+            resp = SESSION.get(url, stream=True, timeout=120)
             resp.raise_for_status()
 
             total = int(resp.headers.get("content-length", 0))
@@ -59,11 +65,11 @@ def download_file(url: str, dest: Path, desc: str = "",
                             end="", flush=True,
                         )
             print()  # newline after progress
-            print(f"  ✓ Saved → {dest}  ({dest.stat().st_size / 1e6:.1f} MB)")
+            print(f"  [OK] Saved -> {dest}  ({dest.stat().st_size / 1e6:.1f} MB)")
             return dest
 
         except Exception as e:
-            print(f"\n  ✗ Attempt {attempt} failed: {e}")
+            print(f"\n  [FAIL] Attempt {attempt} failed: {e}")
             if dest.exists():
                 dest.unlink()
             if attempt < max_retries:
@@ -75,11 +81,11 @@ def download_file(url: str, dest: Path, desc: str = "",
     return dest  # unreachable but keeps linter happy
 
 
-# ── 1. UTCI ────────────────────────────────────────────────────────────────
+# -- 1. UTCI ----------------------------------------------------------------
 
 def download_utci() -> Path:
     """Download GloUTCI-M August 2022 ZIP and extract the GeoTIFF."""
-    print("\n── UTCI (GloUTCI-M August 2022) ──")
+    print("\n-- UTCI (GloUTCI-M August 2022) --")
     zip_path = UTCI_DIR / "GloUTCI-M_YEAR_2022_MONTH_08.zip"
 
     # Check if already extracted
@@ -98,16 +104,16 @@ def download_utci() -> Path:
             raise RuntimeError("No .tif found inside UTCI ZIP")
         for name in tif_names:
             zf.extract(name, UTCI_DIR)
-            print(f"  ✓ Extracted {name}")
+            print(f"  [OK] Extracted {name}")
 
     # Clean up ZIP to save disk
     zip_path.unlink()
-    print("  ✓ Removed ZIP to save space")
+    print("  [OK] Removed ZIP to save space")
 
     return UTCI_DIR / tif_names[0]
 
 
-# ── 2. Population ─────────────────────────────────────────────────────────
+# -- 2. Population ---------------------------------------------------------
 
 def download_population() -> Path:
     """
@@ -119,7 +125,7 @@ def download_population() -> Path:
     block's building footprint area is later used in zonal stats to derive
     population estimates scaled to Shanghai's known total (~24.9 million).
     """
-    print("\n── Population (synthesized from OSM buildings) ──")
+    print("\n-- Population (synthesized from OSM buildings) --")
     out_path = POP_DIR / "shanghai_pop_proxy_100m.tif"
 
     if out_path.exists() and out_path.stat().st_size > 1_000:
@@ -194,31 +200,31 @@ def download_population() -> Path:
     with rasterio.open(out_path, "w", **profile) as dst:
         dst.write(raster, 1)
 
-    print(f"  ✓ Population proxy raster → {out_path} ({out_path.stat().st_size / 1e6:.1f} MB)")
+    print(f"  [OK] Population proxy raster -> {out_path} ({out_path.stat().st_size / 1e6:.1f} MB)")
     return out_path
 
 
-# ── 3. Nightlight ─────────────────────────────────────────────────────────
+# -- 3. Nightlight ---------------------------------------------------------
 
 def download_nightlight() -> Path:
     """Download PCNL 2021 harmonized nighttime light."""
-    print("\n── Nightlight (PCNL 2021) ──")
+    print("\n-- Nightlight (PCNL 2021) --")
     dest = NL_DIR / "PCNL2021.tif"
     download_file(NL_URL, dest, desc="PCNL 2021 nightlight")
     return dest
 
 
-# ── 4. GDP ────────────────────────────────────────────────────────────────
+# -- 4. GDP ----------------------------------------------------------------
 
 def download_gdp() -> Path:
-    """Download gridded GDP total at 5-arcmin resolution."""
-    print("\n── GDP (5-arcmin gridded, 1990-2022) ──")
-    dest = GDP_DIR / "rast_gdpTot_1990_2022_5arcmin.tif"
-    download_file(GDP_URL, dest, desc="GDP 5-arcmin")
+    """Download gridded GDP total at 30-arcsec (~1km) resolution."""
+    print("\n-- GDP (30-arcsec gridded, 1990-2020) --")
+    dest = GDP_DIR / "rast_gdpTot_1990_2020_30arcsec.tif"
+    download_file(GDP_URL, dest, desc="GDP 30-arcsec (~1km)")
     return dest
 
 
-# ── Main ──────────────────────────────────────────────────────────────────
+# -- Main ------------------------------------------------------------------
 
 def main():
     print("=" * 60)
@@ -235,7 +241,7 @@ def main():
     print("Download summary:")
     for name, p in paths.items():
         sz = p.stat().st_size / 1e6 if p.exists() else 0
-        print(f"  {name:15s} → {p}  ({sz:.1f} MB)")
+        print(f"  {name:15s} -> {p}  ({sz:.1f} MB)")
     print("=" * 60)
 
     return paths

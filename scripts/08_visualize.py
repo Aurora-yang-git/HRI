@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-08_visualize.py — Generate thematic maps for Shanghai heat-risk analysis.
+08_visualize.py -- Generate thematic maps for Shanghai heat-risk analysis.
 
 Produces 5 maps:
   1. HRI Heat Risk Map (7-class quantile, YlOrRd)
   2. OHSPI Outdoor Priority Map (RdYlGn_r diverging)
   3. IHSPI Indoor Priority Map (RdYlGn_r diverging)
-  4. Priority Composite — dual-panel with Top-10 annotation
-  5. Supply-Demand Dashboard — 5-subplot overview
+  4. Priority Composite -- dual-panel with Top-10 annotation
+  5. Supply-Demand Dashboard -- 5-subplot overview
 
 Classification uses quantile breaks for even color distribution.
 Zero-population blocks are rendered as a neutral gray underlay.
@@ -33,14 +33,21 @@ try:
 except ImportError:
     HAS_SCALEBAR = False
 
-TILE_SRC = ctx.providers.CartoDB.Positron
+TILE_SOURCES = [
+    ctx.providers.CartoDB.Positron,
+    "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+    ctx.providers.Stadia.StamenTonerLite,
+]
 
 
 def add_basemap(ax, crs):
-    try:
-        ctx.add_basemap(ax, crs=crs, source=TILE_SRC, zoom=11, alpha=0.4)
-    except Exception as e:
-        print(f"    [warn] Basemap failed: {e}")
+    for src in TILE_SOURCES:
+        try:
+            ctx.add_basemap(ax, crs=crs, source=src, zoom=11, alpha=0.4)
+            return
+        except Exception:
+            continue
+    ax.set_facecolor("#f5f5f5")
 
 
 def add_north_arrow(ax, x=0.95, y=0.95):
@@ -111,7 +118,7 @@ def plot_classified_map(
     fig.savefig(png_path, dpi=300, bbox_inches="tight")
     fig.savefig(svg_path, format="svg", bbox_inches="tight")
     plt.close(fig)
-    print(f"    ✓ {png_path.name} ({png_path.stat().st_size / 1e6:.1f} MB)")
+    print(f"    ? {png_path.name} ({png_path.stat().st_size / 1e6:.1f} MB)")
 
 
 def plot_priority_composite(gdf_all, gdf_active):
@@ -132,7 +139,7 @@ def plot_priority_composite(gdf_all, gdf_active):
             legend_kwds={"title": col.upper(), "loc": "lower right", "fontsize": 7},
         )
         add_basemap(ax, gdf_all.crs)
-        ax.set_title(f"Heat Shelter Priority — {title_suffix}",
+        ax.set_title(f"Heat Shelter Priority -- {title_suffix}",
                       fontsize=14, fontweight="bold")
         ax.set_axis_off()
 
@@ -145,7 +152,7 @@ def plot_priority_composite(gdf_all, gdf_active):
                 bbox=dict(boxstyle="round,pad=0.2", fc="white", alpha=0.7, ec="red"),
             )
 
-    plt.suptitle("Intervention Priority — Shanghai 2022",
+    plt.suptitle("Intervention Priority -- Shanghai 2022",
                   fontsize=18, fontweight="bold", y=1.02)
     plt.tight_layout()
 
@@ -154,7 +161,7 @@ def plot_priority_composite(gdf_all, gdf_active):
         fig.savefig(p, dpi=300 if ext == "png" else None,
                     format=ext, bbox_inches="tight")
     plt.close(fig)
-    print("    ✓ map_priority_composite.png")
+    print("    ? map_priority_composite.png")
 
 
 def plot_dashboard(gdf_all, gdf_active):
@@ -185,7 +192,7 @@ def plot_dashboard(gdf_all, gdf_active):
 
     axes[1, 2].set_visible(False)
 
-    plt.suptitle("Shanghai Heat Risk Supply-Demand Dashboard — 2022",
+    plt.suptitle("Shanghai Heat Risk Supply-Demand Dashboard -- 2022",
                   fontsize=20, fontweight="bold", y=1.01)
     plt.tight_layout()
 
@@ -194,7 +201,7 @@ def plot_dashboard(gdf_all, gdf_active):
         fig.savefig(p, dpi=300 if ext == "png" else None,
                     format=ext, bbox_inches="tight")
     plt.close(fig)
-    print("    ✓ map_dashboard.png")
+    print("    ? map_dashboard.png")
 
 
 def main():
@@ -210,12 +217,12 @@ def main():
     # Split into active (has population) and inactive (no population)
     active = blocks[blocks["pop_sum"] > 0].copy()
     print(f"  Active blocks (pop > 0): {len(active)}")
-    print(f"  Inactive blocks (pop = 0): {len(blocks) - len(active)}  → rendered gray")
+    print(f"  Inactive blocks (pop = 0): {len(blocks) - len(active)}  ? rendered gray")
 
     # Map 1: HRI
     plot_classified_map(
         blocks, active, "hri_norm", "YlOrRd",
-        "Heat Risk Index (HRI) — Shanghai 2022",
+        "Heat Risk Index (HRI) -- Shanghai 2022",
         "map_hri", legend_title="HRI (7-class quantile)",
     )
 
@@ -240,7 +247,7 @@ def main():
     plot_dashboard(blocks, active)
 
     print("\n" + "=" * 60)
-    print(f"Visualization complete — {len(list(MAPS_DIR.glob('*.png')))} PNG files")
+    print(f"Visualization complete -- {len(list(MAPS_DIR.glob('*.png')))} PNG files")
     print("=" * 60)
 
 

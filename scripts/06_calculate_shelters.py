@@ -35,7 +35,7 @@ def main():
     blocks = gpd.read_file(BLOCKS_FILE)
     print(f"\n  Loaded {len(blocks)} blocks")
 
-    # ── OHSI ───────────────────────────────────────────────────────────
+    # -- OHSI -----------------------------------------------------------
     print("\n[1/2] OHSI = normalize(green_area / population) ...")
     # Per-capita green space (m² per person)
     gspc = blocks["green_area_m2"] / blocks["pop_sum"].clip(lower=1)
@@ -43,7 +43,7 @@ def main():
     print(f"  Green space per capita: [{gspc.min():.2f}, {gspc.max():.2f}] m²/person")
     print(f"  OHSI: [{blocks['ohsi'].min():.3f}, {blocks['ohsi'].max():.3f}]")
 
-    # ── IHSI ───────────────────────────────────────────────────────────
+    # -- IHSI -----------------------------------------------------------
     print("\n[2/2] IHSI = normalize((poi_density / pop_density) × mean_wt) ...")
     ihsi_raw = (
         blocks["poi_density"]
@@ -56,7 +56,7 @@ def main():
 
     # Save
     blocks.to_file(BLOCKS_FILE, driver="GPKG")
-    print(f"\n  ✓ Saved with shelter indices → {BLOCKS_FILE}")
+    print(f"\n  [OK] Saved with shelter indices -> {BLOCKS_FILE}")
 
     print("\n" + "=" * 60)
     print("Shelter indices complete")

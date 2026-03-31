@@ -3,7 +3,7 @@ __pycache__/
 *.pyc
 *.pyo
 
-# Data files (too large for GitHub, downloaded by scripts)
+# Data files (large, downloaded by pipeline)
 data/utci/*.tif
 data/utci/*.zip
 data/population/*.tif
@@ -11,10 +11,16 @@ data/nightlight/*.tif
 data/gdp/*.tif
 data/processed/*.tif
 data/processed/*.gpkg
+data/processed/*.aux.xml
+
+# OSM shapefiles (large, downloaded separately)
+data/shanghai-260329-free.shp/*.shp
+data/shanghai-260329-free.shp/*.dbf
+data/shanghai-260329-free.shp/*.shx
 
 # Large output files
-output/maps/*.svg
 output/blocks/*.gpkg
+output/maps/*.svg
 
 # OS files
 .DS_Store

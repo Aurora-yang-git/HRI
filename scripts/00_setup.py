@@ -2,8 +2,8 @@
 """
 00_setup.py — Environment setup and dependency installation.
 
-Installs system-level GDAL libraries, Python packages from requirements.txt,
-and verifies that all critical imports succeed.
+Installs Python packages from requirements.txt and verifies that all
+critical imports succeed. Works on Windows (py launcher) and Linux.
 """
 
 import subprocess
@@ -14,16 +14,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def run(cmd: str, check: bool = True, **kwargs) -> subprocess.CompletedProcess:
-    """Run a shell command and print output."""
-    print(f"  → {cmd}")
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, **kwargs)
+def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess:
+    """Run a command and print output."""
+    print(f"  -> {' '.join(cmd)}")
+    result = subprocess.run(cmd, capture_output=True, text=True)
     if result.stdout.strip():
-        print(result.stdout.strip())
+        for line in result.stdout.strip().splitlines()[-20:]:
+            print(f"    {line}")
     if result.stderr.strip():
-        print(result.stderr.strip())
+        for line in result.stderr.strip().splitlines()[-10:]:
+            print(f"    {line}")
     if check and result.returncode != 0:
-        raise RuntimeError(f"Command failed (rc={result.returncode}): {cmd}")
+        raise RuntimeError(f"Command failed (rc={result.returncode})")
     return result
 
 
@@ -32,37 +34,35 @@ def main():
     print("STEP 0: Environment Setup")
     print("=" * 60)
 
-    # 1. Install system GDAL (needed by rasterio / fiona)
-    print("\n[1/4] Installing system GDAL libraries...")
-    run("sudo apt-get update -qq", check=False)
-    run("sudo apt-get install -y -qq gdal-bin libgdal-dev", check=False)
-
-    # 2. Install Python dependencies
-    print("\n[2/4] Installing Python packages...")
+    # 1. Install Python dependencies
+    print("\n[1/3] Installing Python packages ...")
     req_file = ROOT / "requirements.txt"
-    run(f"{sys.executable} -m pip install -q -r {req_file}")
+    run([sys.executable, "-m", "pip", "install", "-q", "-r", str(req_file)])
 
-    # 3. Verify critical imports
-    print("\n[3/4] Verifying imports...")
+    # 2. Verify critical imports
+    print("\n[2/3] Verifying imports ...")
     imports = [
         "geopandas", "rasterio", "rasterstats", "numpy", "pandas",
         "matplotlib", "contextily", "mapclassify", "shapely", "pyproj",
-        "fiona", "requests",
+        "fiona", "requests", "scipy",
     ]
+    ok = 0
     for mod in imports:
         try:
             m = __import__(mod)
-            ver = getattr(m, "__version__", getattr(m, "gdal_version", "?"))
-            print(f"  ✓ {mod:20s} {ver}")
+            ver = getattr(m, "__version__", "?")
+            print(f"  [OK] {mod:20s} {ver}")
+            ok += 1
         except ImportError as e:
-            print(f"  ✗ {mod:20s} FAILED: {e}")
-            sys.exit(1)
+            print(f"  [FAIL] {mod:20s} {e}")
 
-    # 4. Print GDAL version
-    print("\n[4/4] GDAL CLI version:")
-    run("gdalinfo --version", check=False)
+    if ok < len(imports):
+        print(f"\n  WARNING: {len(imports) - ok} package(s) failed to import")
+    else:
+        print(f"\n  All {ok} packages OK")
 
-    # 5. Ensure output directories exist
+    # 3. Ensure output directories exist
+    print("\n[3/3] Creating output directories ...")
     from config import (
         UTCI_DIR, POP_DIR, NL_DIR, GDP_DIR, PROCESSED_DIR,
         BLOCKS_DIR, MAPS_DIR, FIGURES_DIR,
@@ -70,9 +70,10 @@ def main():
     for d in [UTCI_DIR, POP_DIR, NL_DIR, GDP_DIR, PROCESSED_DIR,
               BLOCKS_DIR, MAPS_DIR, FIGURES_DIR]:
         d.mkdir(parents=True, exist_ok=True)
+        print(f"  [OK] {d}")
 
     print("\n" + "=" * 60)
-    print("Setup complete ✓")
+    print("Setup complete")
     print("=" * 60)
 
 

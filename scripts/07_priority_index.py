@@ -5,8 +5,8 @@
 OHSPI = HRI_norm − OHSI   (outdoor heat shelter priority)
 IHSPI = HRI_norm − IHSI   (indoor heat shelter priority)
 
-Positive values → high risk + low shelter → needs intervention.
-Negative values → risk adequately covered by existing shelters.
+Positive values -> high risk + low shelter -> needs intervention.
+Negative values -> risk adequately covered by existing shelters.
 
 Also applies 7-class Natural Breaks (Jenks) to HRI, OHSPI, and IHSPI.
 """
@@ -44,7 +44,7 @@ def main():
     blocks = gpd.read_file(BLOCKS_FILE)
     print(f"\n  Loaded {len(blocks)} blocks")
 
-    # ── Priority indices ───────────────────────────────────────────────
+    # -- Priority indices -----------------------------------------------
     print("\n[1/2] Computing OHSPI and IHSPI ...")
     blocks["ohspi"] = blocks["hri_norm"] - blocks["ohsi"]
     blocks["ihspi"] = blocks["hri_norm"] - blocks["ihsi"]
@@ -52,7 +52,7 @@ def main():
     print(f"  OHSPI: [{blocks['ohspi'].min():.3f}, {blocks['ohspi'].max():.3f}]")
     print(f"  IHSPI: [{blocks['ihspi'].min():.3f}, {blocks['ihspi'].max():.3f}]")
 
-    # ── Jenks classification ──────────────────────────────────────────
+    # -- Jenks classification ------------------------------------------
     print(f"\n[2/2] Jenks {JENKS_CLASSES}-class classification ...")
     blocks["hri_class"] = classify_jenks(blocks["hri_norm"])
     blocks["ohspi_class"] = classify_jenks(blocks["ohspi"])
@@ -63,7 +63,7 @@ def main():
 
     # Save
     blocks.to_file(BLOCKS_FILE, driver="GPKG")
-    print(f"\n  ✓ Saved with priority indices → {BLOCKS_FILE}")
+    print(f"\n  [OK] Saved with priority indices -> {BLOCKS_FILE}")
     print(f"    Final columns: {list(blocks.columns)}")
 
     print("\n" + "=" * 60)

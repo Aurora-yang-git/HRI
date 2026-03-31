@@ -199,7 +199,7 @@ def main():
 
     # Save
     blocks.to_file(BLOCKS_FILE, driver="GPKG")
-    print(f"\n  ✓ Saved enriched blocks → {BLOCKS_FILE}")
+    print(f"\n  [OK] Saved enriched blocks -> {BLOCKS_FILE}")
     print(f"    Columns: {list(blocks.columns)}")
 
     print("\n" + "=" * 60)

@@ -28,29 +28,29 @@ STEPS = [
 
 
 def main():
-    print("\n" + "█" * 60)
+    print("\n" + "#" * 60)
     print("  Shanghai Heat Risk Analysis — Full Pipeline")
-    print("█" * 60 + "\n")
+    print("#" * 60 + "\n")
 
     results = []
     total_start = time.time()
 
     for module_name, description in STEPS:
-        print(f"\n{'━' * 60}")
-        print(f"▶ Running: {module_name} — {description}")
-        print(f"{'━' * 60}")
+        print(f"\n{'-' * 60}")
+        print(f">> Running: {module_name} — {description}")
+        print(f"{'-' * 60}")
 
         t0 = time.time()
         try:
             mod = importlib.import_module(module_name)
             mod.main()
             elapsed = time.time() - t0
-            results.append((module_name, description, "✓ OK", elapsed))
-            print(f"\n  ⏱ {description}: {elapsed:.1f}s")
+            results.append((module_name, description, "[OK] OK", elapsed))
+            print(f"\n  [time] {description}: {elapsed:.1f}s")
         except Exception as e:
             elapsed = time.time() - t0
-            results.append((module_name, description, f"✗ FAILED: {e}", elapsed))
-            print(f"\n  ✗ {description} FAILED after {elapsed:.1f}s: {e}")
+            results.append((module_name, description, f"[FAIL] FAILED: {e}", elapsed))
+            print(f"\n  [FAIL] {description} FAILED after {elapsed:.1f}s: {e}")
             import traceback
             traceback.print_exc()
             # Continue to next step
@@ -59,14 +59,14 @@ def main():
     total_elapsed = time.time() - total_start
 
     # Summary
-    print("\n\n" + "█" * 60)
+    print("\n\n" + "#" * 60)
     print("  Pipeline Summary")
-    print("█" * 60)
+    print("#" * 60)
     print(f"\n{'Module':<30s} {'Status':<20s} {'Time':>8s}")
-    print("─" * 60)
+    print("-" * 60)
     for module_name, description, status, elapsed in results:
         print(f"  {description:<28s} {status:<20s} {elapsed:7.1f}s")
-    print("─" * 60)
+    print("-" * 60)
     print(f"  {'TOTAL':<48s} {total_elapsed:7.1f}s")
 
     # Check outputs
@@ -74,15 +74,15 @@ def main():
     from config import BLOCKS_FILE, MAPS_DIR, QGIS_PROJECT
     for p in [BLOCKS_FILE, QGIS_PROJECT]:
         if p.exists():
-            print(f"  ✓ {p} ({p.stat().st_size / 1e6:.1f} MB)")
+            print(f"  [OK] {p} ({p.stat().st_size / 1e6:.1f} MB)")
         else:
-            print(f"  ✗ {p} MISSING")
+            print(f"  [FAIL] {p} MISSING")
 
     if MAPS_DIR.exists():
         for f in sorted(MAPS_DIR.iterdir()):
-            print(f"  ✓ {f} ({f.stat().st_size / 1e6:.1f} MB)")
+            print(f"  [OK] {f} ({f.stat().st_size / 1e6:.1f} MB)")
 
-    n_ok = sum(1 for _, _, s, _ in results if s.startswith("✓"))
+    n_ok = sum(1 for _, _, s, _ in results if s.startswith("[OK]"))
     n_total = len(results)
     print(f"\n  {n_ok}/{n_total} steps completed successfully")
 

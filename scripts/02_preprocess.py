@@ -65,7 +65,7 @@ def make_boundary() -> gpd.GeoDataFrame:
 
     ensure_dir(BOUNDARY_FILE.parent)
     gdf.to_file(BOUNDARY_FILE, driver="GPKG")
-    print(f"  ✓ Boundary saved → {BOUNDARY_FILE}")
+    print(f"  [OK] Boundary saved -> {BOUNDARY_FILE}")
     return gdf
 
 
@@ -79,7 +79,7 @@ def clip_reproject_raster(
     """
     Clip a raster to the Shanghai bounding box, reproject to UTM 51N,
     optionally extract a single band and apply a scale factor.
-    Uses a two-step approach: window-based read → reproject.
+    Uses a two-step approach: window-based read -> reproject.
     """
     print(f"\n  Processing {label or src_path.name} ...")
 
@@ -167,7 +167,7 @@ def clip_reproject_raster(
 
     sz = dst_path.stat().st_size / 1e6
     vcount = np.count_nonzero(np.isfinite(dst_data))
-    print(f"    ✓ {dst_path.name}  ({sz:.1f} MB, {vcount} valid pixels, CRS={dst_crs})")
+    print(f"    [OK] {dst_path.name}  ({sz:.1f} MB, {vcount} valid pixels, CRS={dst_crs})")
 
 
 def main():
@@ -185,7 +185,7 @@ def main():
     clip_reproject_raster(
         utci_src[0], UTCI_PROCESSED,
         band_index=1, scale_factor=0.01,
-        label="UTCI (Int16 → °C)",
+        label="UTCI (Int16 -> °C)",
     )
 
     # --- Population ---
@@ -212,14 +212,34 @@ def main():
     gdp_src = list(GDP_DIR.glob("*.tif"))
     if not gdp_src:
         raise FileNotFoundError(f"No GDP TIF found in {GDP_DIR}")
-    with rasterio.open(gdp_src[0]) as ds:
-        n_bands = ds.count
-    print(f"\n[5/5] GDP ({n_bands} bands, using band {n_bands}) ...")
-    clip_reproject_raster(
-        gdp_src[0], GDP_PROCESSED,
-        band_index=n_bands,
-        label="GDP (last band = most recent year)",
-    )
+    if GDP_PROCESSED.exists() and GDP_PROCESSED.stat().st_size > 500:
+        print("\n[5/5] GDP ... [skip] already exists")
+    else:
+        print("\n[5/5] GDP (using GDAL CLI for large file) ...")
+        import subprocess
+        with rasterio.open(gdp_src[0]) as ds:
+            n_bands = ds.count
+        print(f"    Source has {n_bands} bands, extracting band {n_bands}")
+        xmin, ymin, xmax, ymax = SHANGHAI_BBOX
+        buf = 0.15
+        tmp_clip = PROCESSED_DIR / "gdp_clip_tmp.tif"
+        subprocess.run([
+            "gdal_translate", "-q",
+            "-b", str(n_bands),
+            "-projwin", str(xmin - buf), str(ymax + buf), str(xmax + buf), str(ymin - buf),
+            "-of", "GTiff",
+            str(gdp_src[0]), str(tmp_clip),
+        ], check=True)
+        print(f"    Clipped to Shanghai bbox ({tmp_clip.stat().st_size / 1e6:.1f} MB)")
+        subprocess.run([
+            "gdalwarp", "-q",
+            "-t_srs", CRS_UTM51N,
+            "-r", "bilinear",
+            "-co", "COMPRESS=LZW",
+            str(tmp_clip), str(GDP_PROCESSED),
+        ], check=True)
+        tmp_clip.unlink()
+        print(f"    [OK] {GDP_PROCESSED.name} ({GDP_PROCESSED.stat().st_size / 1e6:.1f} MB)")
 
     # Summary
     print("\n" + "=" * 60)
