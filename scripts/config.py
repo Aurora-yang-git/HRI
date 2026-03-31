@@ -95,10 +95,10 @@ NL_URL = (
     "PCNL2021.tif/content"
 )
 
-# Gridded GDP total, 5 arc-minute resolution, 1990–2022 (multi-band)
+# Gridded GDP total, 30 arc-second (~1 km) resolution, 1990–2020 (multi-band)
 GDP_URL = (
     "https://zenodo.org/api/records/13943886/files/"
-    "rast_gdpTot_1990_2022_5arcmin.tif/content"
+    "rast_gdpTot_1990_2020_30arcsec.tif/content"
 )
 
 # ── Jenks natural-breaks classification ───────────────────────────────────
