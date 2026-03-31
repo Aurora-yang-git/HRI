@@ -44,14 +44,23 @@ This model addresses both gaps by computing a multiplicative Heat Risk Index ($\
 
 ## 3. Assumptions and Justifications
 
-| # | Assumption | Justification |
-|---|-----------|---------------|
-| **A1** | Heat risk is a **multiplicative** interaction of Hazard ($H$), Exposure ($E$), and Vulnerability ($V$). A block with zero population has near-zero $\text{HRI}$ regardless of thermal intensity. | Follows the IPCC AR6 risk framework. An additive model ($H + E + V$) would assign moderate risk to uninhabited blocks with high UTCI, which is epidemiologically meaningless — heat mortality requires people. The multiplicative form $H \times E \times V$ ensures risk is only high when all three dimensions co-occur (Yang, 2025). |
-| **A2** | Universal Thermal Climate Index (UTCI, °C) adequately represents pedestrian-level thermal stress. Monthly-mean GloUTCI-M (August 2022) serves as the static Hazard ($H$) proxy. | UTCI integrates air temperature, humidity, wind speed, and mean radiant temperature via a multi-node thermoregulation model, directly modelling human physiological response. LST only measures rooftop radiative temperature, which diverges from street-level thermal load by up to 10–15°C in urban canyon environments. August is Shanghai's peak heat month (climatological mean $T_{\max}$ > 35°C). |
-| **A3** | OSM building footprint area is proportional to residential population. Total footprint is scaled to Shanghai's 24.9 M registered population to derive a Population Density ($PD_i$) surface for Exposure ($E$). | Building footprint area correlates with floor area and occupancy. This proxy is widely used when census-calibrated gridded data (e.g., WorldPop) is inaccessible. Limitation: industrial and commercial buildings inflate estimates in non-residential zones. |
-| **A4** | Nighttime light intensity ($NL_i$) and gridded GDP ($GDP_i$) are **negative** proxies for Vulnerability ($V$) — higher values indicate greater adaptive capacity. | Brighter nightlight implies denser infrastructure, higher AC penetration, and better-maintained housing (Chen et al., 2021). Higher GDP correlates with purchasing power for cooling appliances, healthcare access, and housing insulation quality (Kummu et al., 2024). Both are established socio-economic resilience proxies in urban heat vulnerability literature. |
-| **A5** | Public cooling shelters split into outdoor (green space → $\text{OHSI}$) and indoor (commercial/cultural/transit POIs → $\text{IHSI}$) types, each weighted by operating-time availability ($W_T$). | In Shanghai, indoor air-conditioned spaces (malls, metro stations, cafés) are the primary refuge during extreme heat — distinct from cities where parks dominate cooling strategy. Separating the two types enables targeted policy: green space investment vs. extended public building opening hours. $W_T$ reflects that a metro station open 17 h/day provides more shelter-hours than a library open 8 h/day. |
-| **A6** | Road-enclosed blocks (from `shapely.polygonize`) reflect urban morphology better than regular grids. A 500 m fishnet fills gaps where road networks are sparse. | Road-enclosed blocks naturally vary in size with urban density — small blocks (100–200 m) in the city centre match the "15-minute community life circle" scale, while suburban blocks are larger. A uniform 500 m grid would over-segment dense areas and under-segment sparse areas. The fishnet backfill ensures 100% spatial coverage without sacrificing morphological fidelity in urban cores. |
+**A1.** Heat risk is a **multiplicative** interaction: $\text{HRI} = H \times E \times V$. A block with zero population has near-zero $\text{HRI}$ regardless of thermal intensity.
+- An additive model ($H + E + V$) would assign moderate risk to uninhabited blocks with extreme UTCI — epidemiologically meaningless, since heat mortality requires people. The multiplicative form ensures risk is only high when all three dimensions co-occur (IPCC AR6; Yang, 2025).
+
+**A2.** UTCI adequately represents pedestrian-level thermal stress. Monthly-mean GloUTCI-M (August 2022) serves as the static Hazard ($H$) proxy.
+- UTCI integrates air temperature, humidity, wind speed, and mean radiant temperature via a multi-node thermoregulation model. LST only measures rooftop radiative temperature, diverging from street-level thermal load by up to 10–15°C in urban canyons. August is Shanghai's peak heat month (climatological $T_{\max}$ > 35°C).
+
+**A3.** OSM building footprint area is proportional to residential population. Total footprint is scaled to 24.9 M to derive Population Density ($PD_i$) for Exposure ($E$).
+- Building footprint correlates with floor area and occupancy — a standard proxy when census-calibrated gridded data (e.g., WorldPop 5.4 GB) is inaccessible. Limitation: industrial/commercial buildings inflate estimates in non-residential zones.
+
+**A4.** Nighttime light ($NL_i$) and gridded GDP ($GDP_i$) are **negative** proxies for Vulnerability ($V$) — higher values indicate greater adaptive capacity.
+- Brighter nightlight → denser infrastructure, higher AC penetration, better-maintained housing (Chen et al., 2021). Higher GDP → purchasing power for cooling, healthcare access, housing insulation (Kummu et al., 2024). Both are established socio-economic resilience proxies in heat vulnerability literature.
+
+**A5.** Cooling shelters split into outdoor ($\text{OHSI}$, green space) and indoor ($\text{IHSI}$, commercial/cultural/transit POIs), each weighted by operating-time $W_T$.
+- In Shanghai, indoor air-conditioned spaces (malls, metro, cafés) are the primary extreme-heat refuge — distinct from cities where parks dominate. Separating the two enables targeted policy: green space investment vs. extended building opening hours. $W_T$ reflects that a metro station (17 h/day) provides more shelter-hours than a library (8 h/day).
+
+**A6.** Road-enclosed blocks reflect urban morphology better than regular grids. A 500 m fishnet fills gaps where road networks are sparse.
+- Road blocks vary with density: 100–200 m in the city centre (matching the "15-minute life circle"), 500–1400 m in suburbs. A uniform grid would over-segment dense areas and under-segment sparse ones. The fishnet backfill ensures 100% coverage without sacrificing morphological fidelity.
 
 ---
 
@@ -296,50 +305,24 @@ quadrantChart
 
 ## 10. Sensitivity Analysis
 
-We examine how $\text{HRI}$ responds to perturbations in each input dimension.
+In a multiplicative model $\text{HRI} = H \times E \times V$, each component has unit elasticity — a 1% increase in any input produces exactly a 1% increase in $\text{HRI}$. A standard OAT perturbation chart would show three identical overlapping lines, which is uninformative.
 
-```python
-"""
-sensitivity_analysis.py — One-at-a-time (OAT) sensitivity of HRI
-to ±20% perturbations in Hazard, Exposure, and Vulnerability.
-"""
-import numpy as np
-import matplotlib.pyplot as plt
+Instead, we decompose the **empirical variance** of $\log(\text{HRI})$ across Shanghai's 26,784 populated blocks (excluding edge blocks with $T_i < 10$°C). Since $\log(\text{HRI}) = \log H + \log E + \log V$, the variance decomposes additively into main effects and covariance terms:
 
-H0, E0, V0 = 0.65, 0.15, 0.42   # median-block baseline
-hri_base = H0 * E0 * V0
-
-perturbations = np.linspace(-0.20, 0.20, 41)
-results = {"Hazard": [], "Exposure": [], "Vulnerability": []}
-for dp in perturbations:
-    results["Hazard"].append((H0 * (1 + dp)) * E0 * V0)
-    results["Exposure"].append(H0 * (E0 * (1 + dp)) * V0)
-    results["Vulnerability"].append(H0 * E0 * (V0 * (1 + dp)))
-
-fig, ax = plt.subplots(figsize=(8, 5))
-for label, values in results.items():
-    pct = [(v - hri_base) / hri_base * 100 for v in values]
-    ax.plot(perturbations * 100, pct, label=label, linewidth=2)
-ax.set_xlabel("Input perturbation (%)")
-ax.set_ylabel("HRI change (%)")
-ax.set_title("OAT Sensitivity: HRI = H × E × V")
-ax.legend(); ax.grid(True, alpha=0.3)
-plt.savefig("docs/sensitivity_oat.png", dpi=200)
-```
-
-In a multiplicative model $\text{HRI} = H \times E \times V$, each component has **unit elasticity** — a 1% increase in any input produces exactly a 1% increase in $\text{HRI}$. No single dimension dominates *mathematically*.
-
-However, the **empirical variance** across Shanghai blocks differs:
-
-| Dimension | CV (coeff. of variation) | Interpretation |
-|-----------|------------------------|----------------|
-| Hazard $H$ | 0.200 | UTCI is spatially smooth at ~1 km |
-| Exposure $E$ | 0.413 | Population density has highest spatial variance |
-| Vulnerability $V$ | 0.155 | GDP and nightlight provide modest differentiation |
+| Component | Contribution to $\text{Var}(\log \text{HRI})$ |
+|-----------|-----------------------------------------------|
+| Hazard ($H$) | 16.8% |
+| **Exposure ($E$)** | **84.8%** |
+| Vulnerability ($V$) | 22.8% |
+| Cov($H$, $E$) | +12.7% |
+| Cov($H$, $V$) | −16.9% |
+| Cov($E$, $V$) | −20.2% |
 
 ![Sensitivity Analysis](sensitivity_oat.png)
 
-Despite equal theoretical elasticity, **Exposure ($E$, population density) is the dominant empirical driver** of spatial $\text{HRI}$ variation in Shanghai, because its variance far exceeds that of Hazard or Vulnerability.
+**Exposure ($E$, population density) is the dominant empirical driver** of spatial $\text{HRI}$ variation. Hazard ($H$) contributes only 16.8% because UTCI is spatially smooth at ~1 km resolution — most urban blocks share similar thermal stress. Vulnerability ($V$) contributes 22.8%, limited by the modest spatial differentiation of GDP and nightlight within a single megacity. Negative covariance terms (e.g., Cov($H$,$V$) = −16.9%) reflect that wealthier areas tend to also be hotter (central business districts), partially cancelling each other out.
+
+The scatter plot (b) confirms: $E$ shows a strong positive fan-shaped relationship with $\text{HRI}$, while $H$ and $V$ cluster in narrow bands with weak gradients.
 
 ---
 
