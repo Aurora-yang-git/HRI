@@ -42,80 +42,99 @@ This model addresses both gaps by computing a multiplicative Heat Risk Index (HR
 
 ---
 
-## 3. Assumptions
+## 3. Assumptions and Justifications
 
-**A1.** Heat risk is a multiplicative interaction of hazard, exposure, and vulnerability (IPCC AR6 framework). A block with zero population has near-zero risk regardless of thermal intensity.
-
-**A2.** UTCI adequately represents pedestrian-level thermal stress. We use monthly-mean GloUTCI-M (August 2022, peak summer) as a static hazard proxy.
-
-**A3.** OSM building footprint area is proportional to residential population. We scale total footprint to Shanghai's 24.9 M registered population to derive a population density surface.
-
-**A4.** Nighttime light intensity and gridded GDP are negative proxies for vulnerability — higher values indicate greater adaptive capacity (air conditioning access, housing quality, healthcare proximity).
-
-**A5.** Public cooling shelters can be categorised into outdoor (green space) and indoor (commercial, cultural, transit) types, each with distinct operating-time availability.
-
-**A6.** Road-enclosed blocks reflect actual urban morphology better than regular grids. Where road networks are sparse (rural/suburban), a 500 m fishnet provides uniform spatial coverage.
+| # | Assumption | Justification |
+|---|-----------|---------------|
+| **A1** | Heat risk is a **multiplicative** interaction of Hazard ($H$), Exposure ($E$), and Vulnerability ($V$). A block with zero population has near-zero Heat Risk Index ($\text{HRI}$) regardless of thermal intensity. | Follows the IPCC AR6 risk framework. An additive model ($H + E + V$) would assign moderate risk to uninhabited blocks with high UTCI, which is epidemiologically meaningless — heat mortality requires people. The multiplicative form $H \times E \times V$ ensures risk is only high when all three dimensions co-occur (Yang, 2025). |
+| **A2** | Universal Thermal Climate Index ($\text{UTCI}$, °C) adequately represents pedestrian-level thermal stress. Monthly-mean GloUTCI-M (August 2022) serves as the static Hazard ($H$) proxy. | UTCI integrates air temperature, humidity, wind speed, and mean radiant temperature via a multi-node thermoregulation model, directly modelling human physiological response. LST only measures rooftop radiative temperature, which diverges from street-level thermal load by up to 10–15°C in canyon environments. August is Shanghai's peak heat month (climatological mean Tmax > 35°C). |
+| **A3** | OSM building footprint area is proportional to residential population. Total footprint is scaled to Shanghai's 24.9 M registered population to derive a Population Density ($PD_i$) surface for Exposure ($E$). | Building footprint area correlates with floor area and occupancy. This proxy is widely used when census-calibrated gridded data (e.g., WorldPop) is inaccessible. Limitation: industrial and commercial buildings inflate estimates in non-residential zones. |
+| **A4** | Nighttime light intensity ($NL_i$) and gridded GDP ($GDP_i$) are **negative** proxies for Vulnerability ($V$) — higher values indicate greater adaptive capacity. | Brighter nightlight implies denser infrastructure, higher AC penetration, and better-maintained housing (Chen et al., 2021). Higher GDP correlates with purchasing power for cooling appliances, healthcare access, and housing insulation quality (Kummu et al., 2024). Both are established socio-economic resilience proxies in urban heat vulnerability literature. |
+| **A5** | Public cooling shelters split into outdoor (green space → Outdoor Heat Shelter Index, $\text{OHSI}$) and indoor (commercial/cultural/transit POIs → Indoor Heat Shelter Index, $\text{IHSI}$) types, each weighted by operating-time availability ($W_T$). | In Shanghai, indoor air-conditioned spaces (malls, metro stations, cafés) are the primary refuge during extreme heat — distinct from cities where parks dominate cooling strategy. Separating the two types enables targeted policy: green space investment vs. extended public building opening hours. Operating-time weights reflect that a 24-hour metro station provides more shelter-hours than a library open 09:00–17:00. |
+| **A6** | Road-enclosed blocks (from `shapely.polygonize`) reflect urban morphology better than regular grids. A 500 m fishnet fills gaps where road networks are sparse. | Road-enclosed blocks naturally vary in size with urban density — small blocks (100–200 m) in the city centre match the "15-minute community life circle" scale, while suburban blocks are larger. A uniform 500 m grid would over-segment dense areas and under-segment sparse areas. The fishnet backfill ensures 100% spatial coverage without sacrificing morphological fidelity in urban cores. |
 
 ---
 
 ## 4. Model Architecture
 
+### 4.1 Full Pipeline
+
 ```mermaid
 flowchart TD
-    subgraph INPUT["Data Inputs"]
-        UTCI["GloUTCI-M\n930 m, Aug 2022"]
-        POP["Population Proxy\n100 m, OSM buildings"]
-        NL["PCNL Nightlight\n860 m, 2021"]
-        GDP["Gridded GDP\n860 m, 2020"]
-        OSM["OSM Vectors\nroads, landuse, POIs"]
+    subgraph DATA["📦 Data Inputs"]
+        UTCI["GloUTCI-M\n~930 m, Aug 2022\n(Yao et al. 2023)"]
+        POP["Population Proxy\n~100 m\n(OSM buildings × 24.9M)"]
+        NL["PCNL Nightlight\n~860 m, 2021\n(Chen et al. 2021)"]
+        GDP["Gridded GDP\n~860 m, 2020\n(Kummu et al. 2024)"]
+        LU["OSM landuse_a\n(park, forest, grass...)"]
+        POI["OSM pois + transport\n(restaurant, metro...)"]
+        RD["OSM roads\n(6 classes, 102K segments)"]
     end
 
-    subgraph SPATIAL["Spatial Unit Construction"]
-        ROADS["Filter major roads\n6 classes"]
-        POLY["Polygonize → 24,214\nroad-enclosed blocks"]
-        FISH["500 m fishnet infill\n49,056 grid cells"]
-        MERGE["Merge → 73,270 blocks\n100% coverage"]
-        ROADS --> POLY --> MERGE
-        FISH --> MERGE
+    subgraph BLOCKS["🧱 Spatial Units — 73,270 blocks"]
+        RD --> POLY["polygonize()\n→ 24,214 road blocks"]
+        POLY --> UNION["Merge"]
+        FISH["500 m fishnet\n→ 49,056 grid cells"] --> UNION
     end
 
-    subgraph ZONAL["Zonal Statistics"]
-        Z1["UTCI mean → T_i"]
-        Z2["Pop sum → POP_i\nPop density → PD_i"]
-        Z3["NL mean → NL_i"]
-        Z4["GDP mean → GDP_i"]
-        Z5["Green area → GSA_i"]
-        Z6["Weighted POI count\n→ POID_i"]
+    subgraph ZONAL["📊 Zonal Statistics per Block i"]
+        UTCI --> Z_T["T_i = mean UTCI (°C)"]
+        POP --> Z_PD["POP_i = population sum\nPD_i = POP_i / area_km²"]
+        NL --> Z_NL["NL_i = mean nightlight (DN)"]
+        GDP --> Z_GDP["GDP_i = mean GDP (USD PPP)"]
+        LU --> Z_GSA["GSA_i = green space area (m²)"]
+        POI --> Z_POI["POID_i = Σ(W_T × count)\nweighted POI density"]
     end
 
-    subgraph HRI_CALC["HRI Computation"]
-        HAZ["H = 𝒩⁺(T_i)"]
-        EXP["E = 𝒩⁺(PD_i)"]
-        VUL["V = mean(\n  𝒩⁻(NL_i),\n  𝒩⁻(GDP_i),\n  𝒩⁺(PD_i)\n)"]
-        HRI["HRI = H × E × V"]
-        HAZ --> HRI
-        EXP --> HRI
-        VUL --> HRI
+    UNION --> ZONAL
+
+    subgraph HRI["🔥 Heat Risk Index (HRI)"]
+        Z_T --> HAZ["Hazard H_i\n= 𝒩⁺(T_i)\nUTCI → [0.1, 0.9]"]
+        Z_PD --> EXP["Exposure E_i\n= 𝒩⁺(PD_i)\npop density → [0.1, 0.9]"]
+
+        Z_NL --> VUL
+        Z_GDP --> VUL
+        Z_PD --> VUL
+        VUL["Vulnerability V_i\n= ⅓ [𝒩⁻(NL_i) + 𝒩⁻(GDP_i) + 𝒩⁺(PD_i)]"]
+
+        HAZ --> MULT["HRI_i = H_i × E_i × V_i"]
+        EXP --> MULT
+        VUL --> MULT
+        MULT --> NORM_HRI["HRI_norm = 𝒩⁺(HRI_i)\n→ [0.1, 0.9]"]
     end
 
-    subgraph SHELTER["Shelter Indices"]
-        OHSI["OHSI = 𝒩⁺(GSA_i / POP_i)"]
-        IHSI["IHSI = 𝒩⁺(POID_i / PD_i × W̄_T)"]
+    subgraph SHELTER["🏠 Shelter Supply Indices"]
+        Z_GSA --> OHSI["Outdoor Heat Shelter Index\nOHSI_i = 𝒩⁺(GSA_i / POP_i)\nper-capita green space"]
+        Z_PD --> OHSI
+
+        Z_POI --> IHSI["Indoor Heat Shelter Index\nIHSI_i = 𝒩⁺(POID_i / PD_i × W̄_T)\nweighted POI per capita"]
+        Z_PD --> IHSI
     end
 
-    subgraph PRIORITY["Priority Indices"]
-        OHSPI["OHSPI = HRI_norm − OHSI"]
-        IHSPI["IHSPI = HRI_norm − IHSI"]
-    end
+    subgraph PRIORITY["⚡ Intervention Priority"]
+        NORM_HRI --> OHSPI["Outdoor Priority\nOHSPI_i = HRI_norm − OHSI_i\n+ = needs green space"]
+        OHSI --> OHSPI
 
-    INPUT --> SPATIAL
-    INPUT --> ZONAL
-    SPATIAL --> ZONAL
-    ZONAL --> HRI_CALC
-    ZONAL --> SHELTER
-    HRI_CALC --> PRIORITY
-    SHELTER --> PRIORITY
+        NORM_HRI --> IHSPI["Indoor Priority\nIHSPI_i = HRI_norm − IHSI_i\n+ = needs indoor shelters"]
+        IHSI --> IHSPI
+    end
 ```
+
+### 4.2 Data → Indicator Mapping
+
+Each raw dataset feeds into exactly one or two index components. The table below traces every data-to-formula link:
+
+| Raw dataset | Zonal stat | Feeds into | Index component | Normalisation | Direction |
+|-------------|-----------|------------|-----------------|---------------|-----------|
+| GloUTCI-M (UTCI, °C) | mean → $T_i$ | **Hazard** $H_i$ | $H_i = \mathcal{N}^{+}(T_i)$ | Positive | Higher UTCI → higher risk |
+| Population proxy (buildings) | sum → $POP_i$, density → $PD_i$ | **Exposure** $E_i$ | $E_i = \mathcal{N}^{+}(PD_i)$ | Positive | More people → more exposed |
+| PCNL Nightlight (DN) | mean → $NL_i$ | **Vulnerability** $V_i$ (sub-indicator 1) | $\mathcal{N}^{-}(NL_i)$ | Negative | Brighter → less vulnerable |
+| Gridded GDP (USD PPP) | mean → $GDP_i$ | **Vulnerability** $V_i$ (sub-indicator 2) | $\mathcal{N}^{-}(GDP_i)$ | Negative | Richer → less vulnerable |
+| Population proxy | density → $PD_i$ | **Vulnerability** $V_i$ (sub-indicator 3) | $\mathcal{N}^{+}(PD_i)$ | Positive | Denser → age-sensitive proxy |
+| OSM landuse (green) | intersection area → $GSA_i$ | **Outdoor Heat Shelter Index** $\text{OHSI}_i$ | $\mathcal{N}^{+}(GSA_i / POP_i)$ | Positive | More green/capita → more shelter |
+| OSM POIs + transport | weighted count → $POID_i$ | **Indoor Heat Shelter Index** $\text{IHSI}_i$ | $\mathcal{N}^{+}(POID_i / PD_i \times \bar{W}_T)$ | Positive | More POI/capita → more shelter |
+| — | — | **Outdoor Priority** $\text{OHSPI}_i$ | $\text{HRI}_i^{\text{norm}} - \text{OHSI}_i$ | — | Positive = under-served |
+| — | — | **Indoor Priority** $\text{IHSPI}_i$ | $\text{HRI}_i^{\text{norm}} - \text{IHSI}_i$ | — | Positive = under-served |
 
 ---
 
