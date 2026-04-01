@@ -60,6 +60,46 @@ def uid():
     return str(uuid.uuid4()).replace("-", "")[:20]
 
 
+# Complete CRS definitions so QGIS can place layers correctly
+UTM51N_PROJ4 = "+proj=utm +zone=51 +datum=WGS84 +units=m +no_defs"
+UTM51N_WKT = (
+    'PROJCS["WGS 84 / UTM zone 51N",'
+    'GEOGCS["WGS 84",'
+    'DATUM["WGS_1984",'
+    'SPHEROID["WGS 84",6378137,298.257223563]],'
+    'PRIMEM["Greenwich",0],'
+    'UNIT["degree",0.0174532925199433]],'
+    'PROJECTION["Transverse_Mercator"],'
+    'PARAMETER["latitude_of_origin",0],'
+    'PARAMETER["central_meridian",123],'
+    'PARAMETER["scale_factor",0.9996],'
+    'PARAMETER["false_easting",500000],'
+    'PARAMETER["false_northing",0],'
+    'UNIT["metre",1],'
+    'AUTHORITY["EPSG","32651"]]'
+)
+WGS84_PROJ4 = "+proj=longlat +datum=WGS84 +no_defs"
+WGS84_WKT = (
+    'GEOGCS["WGS 84",'
+    'DATUM["WGS_1984",'
+    'SPHEROID["WGS 84",6378137,298.257223563]],'
+    'PRIMEM["Greenwich",0],'
+    'UNIT["degree",0.0174532925199433],'
+    'AUTHORITY["EPSG","4326"]]'
+)
+
+
+def _add_full_srs(parent, authid, proj4, wkt):
+    """Add a complete <spatialrefsys> with authid, proj4, and WKT."""
+    srs_el = SubElement(parent, "srs")
+    sr = SubElement(srs_el, "spatialrefsys")
+    SubElement(sr, "authid").text = authid
+    SubElement(sr, "proj4").text = proj4
+    SubElement(sr, "srid").text = authid.split(":")[1]
+    SubElement(sr, "wkt").text = wkt
+    return srs_el
+
+
 def _hex_to_rgba(hex_color, alpha=255):
     r = int(hex_color[1:3], 16)
     g = int(hex_color[3:5], 16)
@@ -154,9 +194,7 @@ def gpkg_layer_element(display_name, gpkg_path, field, colors, breaks):
     SubElement(ml, "layername").text = display_name
     SubElement(ml, "datasource").text = f"{gpkg_path}|layername=road_blocks"
     SubElement(ml, "provider").text = "ogr"
-    srs = SubElement(ml, "srs")
-    sr = SubElement(srs, "spatialrefsys")
-    SubElement(sr, "authid").text = CRS_UTM51N
+    _add_full_srs(ml, CRS_UTM51N, UTM51N_PROJ4, UTM51N_WKT)
     ml.append(build_graduated_renderer(field, colors, breaks))
     return ml
 
@@ -231,9 +269,7 @@ def raster_layer_element(display_name, tif_path, style_key=None):
     SubElement(ml, "layername").text = display_name
     SubElement(ml, "datasource").text = str(tif_path)
     SubElement(ml, "provider").text = "gdal"
-    srs = SubElement(ml, "srs")
-    sr = SubElement(srs, "spatialrefsys")
-    SubElement(sr, "authid").text = CRS_UTM51N
+    _add_full_srs(ml, CRS_UTM51N, UTM51N_PROJ4, UTM51N_WKT)
 
     if style_key and style_key in RASTER_STYLES:
         pipe = build_pseudocolor_pipe(RASTER_STYLES[style_key])
@@ -250,9 +286,7 @@ def shp_layer_element(display_name, shp_path, geom_type, renderer):
     SubElement(ml, "layername").text = display_name
     SubElement(ml, "datasource").text = str(shp_path)
     SubElement(ml, "provider").text = "ogr"
-    srs = SubElement(ml, "srs")
-    sr = SubElement(srs, "spatialrefsys")
-    SubElement(sr, "authid").text = CRS_WGS84
+    _add_full_srs(ml, CRS_WGS84, WGS84_PROJ4, WGS84_WKT)
     ml.append(renderer)
     return ml
 
@@ -307,6 +341,9 @@ def build_project(blocks_gdf, gpkg_rel_path):
     proj_crs = SubElement(qgis, "projectCrs")
     sr = SubElement(proj_crs, "spatialrefsys")
     SubElement(sr, "authid").text = CRS_UTM51N
+    SubElement(sr, "proj4").text = UTM51N_PROJ4
+    SubElement(sr, "srid").text = "32651"
+    SubElement(sr, "wkt").text = UTM51N_WKT
 
     project_layers = SubElement(qgis, "projectlayers")
 
